@@ -1,0 +1,921 @@
+# ==============================================================================
+# SENTIMENTSIGNAL v6.0.1 - MASTER CONFIGURATION
+# ==============================================================================
+# Last Updated: October 8, 2025
+# Status: Pre-Production (Architecture + Addendum Complete)
+# Current Phase: Phase 0 - Validation
+# 
+# CHANGELOG:
+# - v6.0.1: Added pump detection + alternative data sources (Addendum)
+# - v6.0: Added adaptive weighting, multi-TF clustering, regime sizing, etc.
+# - v5.0: Consolidated workflow + 8 edge enhancements
+# ==============================================================================
+
+# ==============================================================================
+# VERSION & PHASE
+# ==============================================================================
+version: "6.0.1"
+current_phase: "pre-production"  # pre-production | phase-0 | phase-1 | phase-2 | phase-3 | phase-4
+
+# ==============================================================================
+# MASTER SWITCHES (Global Enable/Disable)
+# ==============================================================================
+master_switches:
+  system_enabled: FALSE                    # Master kill switch
+  paper_mode: TRUE                         # TRUE = mock broker, FALSE = live
+  use_ml_brain: FALSE                      # Station 3.5 (Phase 5+)
+  ml_exit_predictor: FALSE                 # Station 6.5 (Phase 6+)
+  logging_enabled: TRUE
+  telegram_notifications: FALSE            # Phase 3+
+
+# ==============================================================================
+# CODE REUSE (From Discord-to-IBKR)
+# ==============================================================================
+code_reuse:
+  enabled: TRUE
+  state_manager_source: "discord-to-ibkr"
+  mock_broker_source: "discord-to-ibkr"
+  reconciliation_source: "discord-to-ibkr"
+  exit_system_source: "discord-to-ibkr"
+
+# ==============================================================================
+# STATION 1: SENTIMENT RADAR
+# ==============================================================================
+station_1_radar:
+  enabled: FALSE  # Phase 1 Week 6-7
+  
+  data_sources:
+    wsb:
+      enabled: TRUE
+      subreddit: "wallstreetbets"
+      check_interval: 300  # seconds (5 min)
+      min_mentions: 10
+      velocity_threshold: 2.0  # 2x increase = viral
+      
+    stocktwits:
+      enabled: TRUE
+      check_interval: 300
+      min_mentions: 10
+      
+    twitter:
+      enabled: FALSE  # Phase 2+
+      
+  filters:
+    exponential_decay:
+      enabled: FALSE  # Phase 1 Week 10
+      recent_multiplier: 3.0
+      old_multiplier: 0.5
+      decay_window_hours: 24
+      
+    whale_tracking:
+      enabled: FALSE  # Phase 1 Week 10
+      whale_multiplier: 8.0
+      min_accuracy: 0.65  # 65% historical accuracy
+      
+    whale_accuracy_decay:
+      enabled: FALSE  # Phase 1 Week 10
+      track_window_days: 90
+      demote_threshold: 0.55  # Below 55% = demote
+      
+    sarcasm_detection:
+      enabled: FALSE  # Phase 2+
+      model: "distilbert-sarcasm"
+      confidence_threshold: 0.75
+      
+    new_account_filter:
+      enabled: FALSE  # Phase 1 Week 7
+      max_age_days: 30
+      penalty_weight: 0.5
+      
+    cross_platform_confirmation:
+      enabled: FALSE  # Phase 1 Week 7
+      require_sources: 2  # Need 2+ platforms
+      
+  output:
+    min_score: 10  # Minimum to pass to Station 2
+
+# ==============================================================================
+# STATION 2: PRE-SCREEN (Fail-Fast Quality Gates)
+# ==============================================================================
+station_2_prescreen:
+  enabled: FALSE  # Phase 1 Week 6-7
+  
+  quality_gates:
+    options_liquidity:
+      enabled: TRUE
+      min_open_interest: 500
+      max_bid_ask_spread_pct: 10
+      
+    iv_rank:
+      enabled: TRUE
+      min_iv: 20
+      max_iv: 80
+      context_aware: TRUE
+      exceptions:
+        high_velocity_threshold: 50  # Allow IV <55 if velocity >50x
+        biopharma_catalyst: TRUE     # Allow higher IV for catalysts
+        
+    delta_range:
+      enabled: TRUE
+      min_delta: 0.30
+      max_delta: 0.75
+      
+    earnings_gate:
+      enabled: TRUE
+      min_days_until: 2  # Skip if earnings <2 days
+      
+    market_cap:
+      enabled: TRUE
+      min_market_cap: 100000000  # $100M
+      max_market_cap: 500000000000  # $500B
+      
+    avg_volume:
+      enabled: TRUE
+      min_daily_volume: 500000  # 500K shares
+      
+  failure_memory:
+    enabled: FALSE  # Phase 1 Week 10
+    max_failures: 3  # Blacklist after 3 fails
+    cooldown_days: 30
+    
+  pump_detection:
+    enabled: FALSE  # Phase 1 Week 6 (Addendum v6.0.1)
+    auto_skip_threshold: 70  # Auto-reject if score >=70
+    downgrade_threshold: 50  # Lower conviction if score >=50
+    log_all_flags: TRUE
+    
+    filters:
+      new_account_clustering:
+        enabled: TRUE
+        threshold: 0.50  # >50% new accounts = suspicious
+        penalty: 25
+        
+      message_similarity:
+        enabled: TRUE
+        threshold: 3  # >3 duplicate messages = coordinated
+        penalty: 20
+        
+      velocity_spike:
+        enabled: TRUE
+        threshold: 20  # >20x velocity in <2hrs = pump
+        penalty: 30
+        
+      cross_platform_divergence:
+        enabled: TRUE
+        threshold: 10  # WSB spike but no other platforms
+        penalty: 20
+        
+      urgency_language:
+        enabled: TRUE
+        critical_keywords:
+          - "LAST CHANCE"
+          - "BUY NOW"
+          - "MOON SOON"
+          - "GET IN"
+          - "DON'T MISS"
+          - "FINAL CALL"
+        penalty: 15
+        
+      user_spam:
+        enabled: TRUE
+        max_mentions_per_hour: 5
+        penalty: 10
+        
+      quality_gates:
+        enabled: TRUE
+        min_post_length_chars: 100
+        min_comment_depth: 2
+        penalty: 10
+        
+      historical_tracker:
+        enabled: TRUE
+        lookback_days: 90
+        repeat_pump_threshold: 3  # Blacklist if pumped 3x
+        penalty: 50
+        
+      sentiment_extremism:
+        enabled: TRUE
+        threshold: 98  # >98 sentiment = too good to be true
+        penalty: 25
+        
+      whale_veto:
+        enabled: TRUE
+        accuracy_threshold: 0.65
+        penalty: 15
+
+# ==============================================================================
+# STATION 3: MULTI-LAYER SCORING
+# ==============================================================================
+station_3_scoring:
+  enabled: FALSE  # Phase 1 Week 10
+  
+  consensus_mode: "static"  # static | dynamic
+  min_consensus_score: 75
+  
+  layer_weights:
+    sentiment: 40
+    technical: 45
+    options_flow: 15
+    
+  regime_aware_weights:
+    enabled: FALSE  # Phase 1 Week 10
+    bull_strong:      # SPX >70, VIX <15
+      sentiment: 50
+      technical: 30
+      options_flow: 20
+    bull_weak:
+      sentiment: 45
+      technical: 40
+      options_flow: 15
+    choppy:
+      sentiment: 30
+      technical: 55
+      options_flow: 15
+    bear_weak:
+      sentiment: 30
+      technical: 55
+      options_flow: 15
+    bear_strong:      # SPX <30, VIX >30
+      sentiment: 25
+      technical: 55
+      options_flow: 20
+  
+  # --- SENTIMENT LAYER ---
+  sentiment_layer:
+    finbert:
+      enabled: FALSE  # Phase 1 Week 10
+      model: "ProsusAI/finbert"
+      threshold: 0.60
+      
+    vader:
+      enabled: FALSE
+      threshold: 0.05
+      
+    custom_dictionary:
+      enabled: FALSE
+      bullish_keywords: ["moon", "calls", "bullish", "buy", "long"]
+      bearish_keywords: ["puts", "bearish", "short", "sell", "dump"]
+      
+    sarcasm_flip:
+      enabled: FALSE  # Phase 2+
+      
+  # --- TECHNICAL LAYER ---
+  technical_layer:
+    enabled: FALSE  # Phase 1 Week 8-9
+    
+    adaptive_weighting:
+      enabled: FALSE  # Phase 1 Week 10
+      track_period_days: 30
+      hot_threshold: 0.70  # >70% accuracy = 1.5x weight
+      cold_threshold: 0.55  # <55% accuracy = 0.5x weight
+      rebalance_frequency: "monthly"
+      
+    multi_timeframe_clustering:
+      enabled: FALSE  # Phase 1 Week 10
+      require_alignment: TRUE
+      
+      trend_layer:
+        timeframe: "Daily"
+        indicators: ["AlphaTrend", "SuperTrend_AI"]
+        weight: 35
+        
+      momentum_layer:
+        timeframe: "4H"
+        indicators: ["Lorentzian", "Squeeze"]
+        weight: 25
+        
+      structure_layer:
+        timeframe: "1H"
+        indicators: ["SMC"]
+        weight: 20
+        
+      confluence_layer:
+        timeframe: "4H"
+        indicators: ["Options_Series"]
+        weight: 10
+        
+      regime_layer:
+        timeframe: "1H"
+        indicators: ["SPX_Mood", "IV_Rank"]
+        weight: 10
+    
+    indicators:
+      alphatrend:
+        enabled: TRUE
+        period: 14
+        multiplier: 1.0
+        timeframe: "Daily"
+        
+      supertrend_ai:
+        enabled: TRUE
+        atr_period: 10
+        factor: 3.0
+        timeframe: "Daily"
+        
+      lorentzian:
+        enabled: TRUE
+        neighbors: 8
+        features: 5
+        max_bars_back: 2000
+        timeframe: "4H"
+        
+      smc:
+        enabled: TRUE
+        swing_lookback: 50
+        timeframe: "1H"
+        
+      squeeze:
+        enabled: TRUE
+        bb_length: 20
+        bb_mult: 2.0
+        kc_length: 20
+        kc_mult: 1.5
+        timeframe: "4H"
+        
+      options_series:
+        enabled: TRUE
+        require_all_5: TRUE
+        timeframe: "4H"
+        
+      spx_mood:
+        enabled: TRUE
+        timeframe: "1H"
+        
+      iv_rank:
+        enabled: TRUE
+        timeframe: "1H"
+    
+    consensus_thresholds:
+      static_mode:
+        required_bullish: 3  # 3-of-8 indicators
+        
+      dynamic_mode:
+        spx_bullish: 2       # SPX >70 = need 2
+        spx_neutral: 3       # SPX 30-70 = need 3
+        spx_bearish: 5       # SPX <30 = need 5
+    
+    inverse_wsb_mode:
+      enabled: FALSE  # Phase 1 Week 10
+      fade_sentiment_threshold: 95  # >95 = contrarian
+      require_technical_confirmation: TRUE
+      
+  # --- OPTIONS FLOW LAYER ---
+  options_flow_layer:
+    enabled: FALSE  # Phase 2+
+    
+    call_put_ratio:
+      enabled: TRUE
+      bullish_threshold: 1.5
+      bearish_threshold: 0.5
+      
+    unusual_volume:
+      enabled: FALSE  # Phase 2+ (requires paid data)
+      volume_multiplier: 3.0
+      
+    gamma_squeeze_detector:
+      enabled: FALSE  # Phase 1 Week 10
+      concentration_threshold: 0.25
+      dealer_positioning: "short_gamma"
+      
+    dark_pool_divergence:
+      enabled: FALSE  # Phase 2+ (too expensive)
+      
+  # --- EDGE BONUSES/PENALTIES ---
+  edge_features:
+    insider_buying:
+      enabled: FALSE  # Phase 2+
+      bonus_major: 12  # >$1M purchase
+      bonus_minor: 8   # <$1M purchase
+      
+    analyst_upgrade:
+      enabled: FALSE  # Phase 2+
+      bonus_strong_buy: 18
+      bonus_buy: 10
+      
+    sector_rotation:
+      enabled: FALSE  # Phase 1 Week 10
+      bonus_hot_sector: 8
+      penalty_cold_sector: -5
+      
+    crypto_sentiment_lead:
+      enabled: FALSE  # Phase 1 Week 10
+      btc_sentiment_threshold: 20  # ±20 points in 6hrs
+      stock_boost: 10
+      stock_penalty: -10
+      
+    earnings_whisper:
+      enabled: FALSE  # Phase 2+
+      bonus_beat: 15
+      penalty_miss: -15
+      
+    smart_money_divergence:
+      enabled: FALSE  # Phase 1 Week 10
+      divergence_threshold: 50  # Retail vs institutions
+      alert_only: TRUE  # Don't auto-skip, just warn
+      conviction_downgrade: TRUE
+      
+  # --- CONVICTION TIERS ---
+  conviction_tiers:
+    extreme:
+      min_score: 90
+      label: "EXTREME"
+      
+    high:
+      min_score: 80
+      label: "HIGH"
+      
+    moderate:
+      min_score: 70
+      label: "MODERATE"
+      
+    low:
+      min_score: 60
+      label: "LOW"
+
+# ==============================================================================
+# STATION 3.5: ML CONFIDENCE BRAIN (Optional - Phase 5+)
+# ==============================================================================
+station_3_5_ml_brain:
+  enabled: FALSE  # Phase 5+
+  
+  model:
+    type: "finbert_classifier"
+    confidence_threshold: 0.40
+    upgrade_threshold: 0.85
+    
+  features:
+    - sentiment_score
+    - technical_score
+    - options_flow_score
+    - whale_accuracy
+    - velocity_ratio
+    - cross_platform_count
+    - iv_rank
+    - gamma_exposure
+    - sector_rotation
+    - crypto_lead
+    - insider_activity
+    - analyst_rating
+    
+  explainability:
+    shap_enabled: TRUE
+    log_decisions: TRUE
+    
+  override_logic:
+    confidence_lt_40: "SKIP"
+    confidence_gt_85: "UPGRADE_TIER"
+    confidence_40_60: "DOWNGRADE_TIER"
+    
+  inverse_wsb_override:
+    enabled: FALSE  # Phase 5+
+    fade_extreme_threshold: 95
+
+# ==============================================================================
+# STATION 4: POSITION SIZING
+# ==============================================================================
+station_4_sizing:
+  enabled: FALSE  # Phase 1 Week 11
+  
+  base_allocation:
+    funds_per_trade: 300
+    max_concurrent_positions: 5
+    max_portfolio_allocation: 0.30  # 30% max total exposure
+    
+  # --- 8 MULTIPLIERS ---
+  multipliers:
+    1_conviction:
+      enabled: TRUE
+      extreme: 1.5
+      high: 1.0
+      moderate: 0.6
+      low: 0.4
+      
+    2_correlation:
+      enabled: FALSE  # Phase 1 Week 11
+      mode: "graduated"
+      penalties:
+        high_correlation: 0.4   # >0.8 correlation
+        med_correlation: 0.7    # 0.5-0.8
+        low_correlation: 1.0    # <0.5
+        
+    3_friday_discount:
+      enabled: FALSE  # Phase 1 Week 11
+      same_day: 0.3
+      next_day: 0.5
+      two_days: 0.8
+      
+    4_delta:
+      enabled: FALSE  # Phase 1 Week 11
+      otm_penalty: 0.6      # Delta <0.40
+      atm_normal: 1.0       # Delta 0.40-0.60
+      itm_boost: 1.2        # Delta >0.60
+      
+    5_gamma:
+      enabled: FALSE  # Phase 1 Week 11
+      high_gamma_boost: 1.3
+      low_gamma_penalty: 0.8
+      
+    6_volume:
+      enabled: FALSE  # Phase 1 Week 11
+      high_volume_boost: 1.2   # >2x avg
+      low_volume_penalty: 0.7  # <0.5x avg
+      
+    7_time_of_day:
+      enabled: FALSE  # Phase 1 Week 11
+      open_volatile: 0.6       # 9:30-10:00 AM
+      midday_normal: 1.0       # 10:00-3:00 PM
+      close_volatile: 0.8      # 3:00-3:30 PM
+      close_trend: 1.2         # 3:30-4:00 PM (if strong trend)
+      
+    8_regime:
+      enabled: FALSE  # Phase 1 Week 11 (Addendum v6.0.1)
+      bull_strong: 1.5         # SPX >70, VIX <15
+      bull_weak: 1.0
+      choppy: 0.5              # SPX 30-70, VIX 15-25
+      bear_weak: 0.6
+      bear_strong: 0.3         # SPX <30, VIX >30
+  
+  risk_limits:
+    min_size_dollars: 100
+    max_size_dollars: 1500
+    
+  failure_memory_penalty:
+    enabled: FALSE  # Phase 1 Week 11
+    one_failure: 0.8
+    two_failures: 0.5
+    three_failures: 0.0  # Blacklisted
+
+# ==============================================================================
+# STATION 5: EXECUTION
+# ==============================================================================
+station_5_execution:
+  enabled: FALSE  # Phase 1 Week 5
+  
+  broker:
+    type: "ibkr"
+    paper_mode: TRUE
+    reconnect_attempts: 3
+    reconnect_delay_seconds: 5
+    
+  order_settings:
+    order_type: "MKT"  # MKT | LMT
+    time_in_force: "DAY"
+    limit_offset_percent: 2  # For LMT orders
+    
+  reconciliation:
+    enabled: FALSE  # Phase 1 Week 5
+    interval_seconds: 60
+    log_mismatches: TRUE
+    auto_sync: TRUE
+    
+  state_persistence:
+    enabled: FALSE  # Phase 1 Week 4
+    file_path: "state/open_positions.json"
+    backup_interval_minutes: 5
+
+# ==============================================================================
+# STATION 6: DYNAMIC EXITS
+# ==============================================================================
+station_6_exits:
+  enabled: FALSE  # Phase 1 Week 12
+  
+  # --- 5-LAYER EXIT SYSTEM ---
+  exit_priority:
+    - "breakeven"
+    - "sentiment_flip"
+    - "psar_flip"
+    - "rsi_hook"
+    - "trailing_stop"
+  
+  layer_1_breakeven:
+    enabled: TRUE
+    trigger_profit_pct: 20
+    move_to_breakeven: TRUE
+    
+  layer_2_sentiment_flip:
+    enabled: FALSE  # Phase 1 Week 12
+    flip_threshold: 50  # Exit if sentiment drops to <50
+    window_hours: 1
+    
+  layer_3_psar_flip:
+    enabled: FALSE  # Phase 1 Week 12
+    psar_start: 0.02
+    psar_increment: 0.02
+    psar_max: 0.20
+    
+  layer_4_rsi_hook:
+    enabled: FALSE  # Phase 1 Week 12
+    rsi_period: 14
+    overbought: 70
+    hook_threshold: 5  # Exit if RSI drops 5 from peak
+    
+  layer_5_trailing_stop:
+    enabled: FALSE  # Phase 1 Week 12
+    method: "atr"  # atr | pullback_percent
+    
+    atr_settings:
+      period: 14
+      multiplier: 1.5
+      
+    pullback_settings:
+      percent: 15
+      
+  # --- BROKER FAILSAFE ---
+  broker_failsafe:
+    enabled: TRUE
+    native_trail_percent: 30
+    
+  # --- PARTIAL PROFIT SCALING ---
+  partial_profits:
+    enabled: FALSE  # Phase 1 Week 12
+    
+    tranche_1:
+      profit_pct: 15
+      close_pct: 25
+      
+    tranche_2:
+      profit_pct: 30
+      close_pct: 25  # 50% total closed
+      
+    tranche_3:
+      profit_pct: 50
+      close_pct: 25  # 75% total closed
+      
+    tranche_4:
+      final: TRUE
+      trailing_stop: TRUE
+      
+  # --- CONTEXT-AWARE ADAPTATION ---
+  context_aware_exits:
+    enabled: FALSE  # Phase 1 Week 12
+    
+    gamma_momentum_boost:
+      enabled: FALSE
+      if_gamma_detected:
+        prioritize: ["psar_flip", "rsi_hook"]  # Momentum exits first
+        widen_trail_pct: 20  # Instead of 15%
+        lower_sentiment_threshold: 40  # Instead of 50
+        
+    regime_adaptation:
+      enabled: FALSE
+      high_vix:
+        tighten_trail_pct: 12
+        lower_breakeven_trigger: 15
+      strong_trend:
+        widen_trail_pct: 18
+        raise_breakeven_trigger: 25
+
+# ==============================================================================
+# STATION 6.5: ML EXIT PREDICTOR (Optional - Phase 6+)
+# ==============================================================================
+station_6_5_exit_predictor:
+  enabled: FALSE  # Phase 6+
+  
+  model:
+    type: "transformer"
+    predict_peak_move: TRUE
+    confidence_threshold: 0.70
+    
+  features:
+    - price_history
+    - volume_profile
+    - sentiment_trajectory
+    - technical_momentum
+    - options_flow_changes
+    - gamma_exposure_delta
+
+# ==============================================================================
+# ALTERNATIVE DATA SOURCES (Addendum v6.0.1)
+# ==============================================================================
+alternative_sources:
+  enabled: FALSE  # Phase 1 Week 7-8
+  
+  phase_1_free_sources:
+    finviz_screener:
+      enabled: TRUE
+      check_interval_minutes: 60
+      categories:
+        - "top_gainers"
+        - "unusual_volume"
+        - "analyst_upgrades"
+      url: "https://finviz.com/screener.ashx"
+      confidence_boost: 10
+      
+    yahoo_trending:
+      enabled: TRUE
+      check_interval_minutes: 30
+      endpoint: "https://query1.finance.yahoo.com/v1/finance/trending/US"
+      confidence_boost: 8
+      
+    cboe_putcall:
+      enabled: TRUE
+      check_interval_minutes: 60
+      url: "https://www.cboe.com/us/options/market_statistics/"
+      use_for: "extreme_sentiment_validation"
+      
+    earnings_calendar:
+      enabled: TRUE
+      check_interval_minutes: 1440  # Daily
+      source: "yfinance"
+      lookback_days: 7
+      
+  phase_2_paid_sources:
+    barchart_options_flow:
+      enabled: FALSE  # Phase 2+
+      check_interval_minutes: 15
+      endpoint: "https://www.barchart.com/options/unusual-activity"
+      cost_per_month: 50
+      
+    nasdaq_insider:
+      enabled: FALSE  # Phase 2+
+      check_interval_minutes: 1440
+      endpoint: "https://www.nasdaq.com/market-activity/insider-activity"
+      
+    openinsider:
+      enabled: FALSE  # Phase 2+
+      endpoint: "http://openinsider.com/screener"
+      
+    finra_short_interest:
+      enabled: FALSE  # Phase 2+
+      check_interval_minutes: 1440
+      endpoint: "https://www.finra.org/finra-data/browse-catalog/short-interest"
+      
+    google_trends:
+      enabled: FALSE  # Already in v6.0
+      library: "pytrends"
+      
+    crypto_sentiment:
+      enabled: FALSE  # Already in v6.0
+      source: "twitter_crypto_api"
+  
+  scraping_intervals:
+    fast: 5        # minutes (social media)
+    medium: 15     # minutes (market data)
+    slow: 60       # minutes (regime data)
+    daily: 1440    # minutes (earnings, short interest)
+    
+  validation_rules:
+    cross_platform_confirmation_boost: 15  # WSB + Finviz + Yahoo
+    single_source_penalty: -5              # Only WSB, no confirmation
+
+# ==============================================================================
+# LOGGING & MONITORING
+# ==============================================================================
+logging:
+  enabled: TRUE
+  log_level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+  log_file: "logs/sentimentsignal.log"
+  
+  log_categories:
+    station_1_radar: TRUE
+    station_2_prescreen: TRUE
+    station_3_scoring: TRUE
+    station_4_sizing: TRUE
+    station_5_execution: TRUE
+    station_6_exits: TRUE
+    pump_detection: TRUE  # NEW
+    alternative_data: TRUE  # NEW
+    reconciliation: TRUE
+    state_changes: TRUE
+    errors: TRUE
+    
+  trade_journal:
+    enabled: TRUE
+    file_path: "logs/trade_journal.csv"
+    fields:
+      - timestamp
+      - ticker
+      - action
+      - entry_price
+      - exit_price
+      - pnl
+      - win_loss
+      - conviction_tier
+      - pump_score  # NEW
+      - alt_data_flags  # NEW
+      - exit_reason
+
+# ==============================================================================
+# BACKTESTING
+# ==============================================================================
+backtesting:
+  enabled: FALSE  # Phase 2 Week 12-13
+  
+  settings:
+    lookback_years: 1
+    tickers_count: 10
+    sectors: "diverse"
+    
+  costs:
+    commission_per_contract: 1.0  # IBKR fee
+    slippage_percent: 5.0
+    bid_ask_spread_percent: 2.0
+    
+  greeks_simulation:
+    enabled: TRUE
+    update_frequency: "daily"
+    
+  walk_forward:
+    enabled: TRUE
+    retrain_interval_months: 3
+    
+  a_b_testing:
+    enabled: TRUE
+    test_variants:
+      - "baseline_static"
+      - "adaptive_weighting"
+      - "multi_timeframe"
+      - "regime_sizing"
+      - "pump_detection_on"
+      - "alt_data_on"
+
+# ==============================================================================
+# NOTIFICATIONS
+# ==============================================================================
+notifications:
+  telegram:
+    enabled: FALSE  # Phase 3+
+    bot_token: "${TELEGRAM_BOT_TOKEN}"  # From .env
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    
+    alerts:
+      entry_signals: TRUE
+      exit_signals: TRUE
+      pump_detected: TRUE  # NEW
+      alt_data_confirmation: TRUE  # NEW
+      system_errors: TRUE
+      daily_summary: TRUE
+
+# ==============================================================================
+# SAFETY & RISK CONTROLS
+# ==============================================================================
+safety:
+  kill_switches:
+    max_daily_loss: 500
+    max_drawdown_pct: 15
+    consecutive_losses: 5
+    
+  position_limits:
+    max_concurrent: 5
+    max_portfolio_exposure_pct: 30
+    max_single_position_pct: 10
+    
+  market_conditions:
+    halt_on_circuit_breaker: TRUE
+    halt_on_high_vix: FALSE
+    vix_threshold: 40
+
+# ==============================================================================
+# API KEYS & CREDENTIALS (Load from .env)
+# ==============================================================================
+api_keys:
+  ibkr:
+    client_id: "${IBKR_CLIENT_ID}"
+    port: 7497  # 7497 = paper, 7496 = live
+    
+  reddit:
+    client_id: "${REDDIT_CLIENT_ID}"
+    client_secret: "${REDDIT_CLIENT_SECRET}"
+    user_agent: "SentimentSignal/1.0"
+    
+  stocktwits:
+    api_key: "${STOCKTWITS_API_KEY}"
+    
+  polygon:
+    api_key: "${POLYGON_API_KEY}"
+    
+  openbb:
+    api_key: "${OPENBB_API_KEY}"
+    
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+
+# ==============================================================================
+# PERFORMANCE TARGETS
+# ==============================================================================
+performance_targets:
+  phase_1_backtest:
+    win_rate_min: 0.60
+    avg_profit_min: 35
+    sharpe_ratio_min: 1.8
+    max_drawdown_max: 0.18
+    
+  phase_3_paper:
+    win_rate_min: 0.60
+    avg_profit_min: 30
+    monthly_profit_min: 800
+    
+  phase_4_live:
+    win_rate_target: 0.70
+    avg_profit_target: 40
+    monthly_profit_target: 2000
+    
+  phase_7_mature:
+    win_rate_target: 0.85  # With pump detection + alt data
+    avg_profit_target: 79
+    monthly_profit_target: 4000
+
+# ==============================================================================
+# END OF CONFIG
+# ==============================================================================
